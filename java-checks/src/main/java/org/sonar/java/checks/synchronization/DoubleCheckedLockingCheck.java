@@ -51,8 +51,6 @@ import static org.sonar.plugins.java.api.tree.Tree.Kind.SYNCHRONIZED_STATEMENT;
 @Rule(key = "S2168")
 public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
 
-  private static final String MESSAGE = "Remove this dangerous instance of double-checked locking.";
-
   private Deque<ExpressionTree> ifConditionStack = new LinkedList<>();
   private Deque<Tree> synchronizedStmtStack = new LinkedList<>();
 
@@ -76,7 +74,7 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
 
   @Override
   public void leaveNode(Tree tree) {
-    if (tree.is(IF_STATEMENT) && fieldNotInitializedTest(((IfStatementTree) tree).condition())) {
+    if (tree.is(IF_STATEMENT) && isFieldEqNull(((IfStatementTree) tree).condition())) {
       ifConditionStack.pollLast();
     }
     if (tree.is(SYNCHRONIZED_STATEMENT)) {
@@ -85,7 +83,7 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
   }
 
   private void visitIfStatement(IfStatementTree ifTree) {
-    if (!fieldNotInitializedTest(ifTree.condition())) {
+    if (!isFieldEqNull(ifTree.condition())) {
       return;
     }
     ifConditionStack.add(ifTree.condition());
@@ -93,6 +91,24 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
       return;
     }
     patternDetected(ifTree);
+  }
+
+  private static boolean isFieldEqNull(ExpressionTree condition) {
+    if (!condition.is(EQUAL_TO)) {
+      return false;
+    }
+    BinaryExpressionTree eqRelation = (BinaryExpressionTree) condition;
+    if (isField(eqRelation.leftOperand()) && eqRelation.rightOperand().is(NULL_LITERAL)) {
+      return true;
+    }
+    if (isField(eqRelation.rightOperand()) && eqRelation.leftOperand().is(NULL_LITERAL)) {
+      return true;
+    }
+    return false;
+  }
+
+  private boolean insideCriticalSection() {
+    return !synchronizedStmtStack.isEmpty();
   }
 
   private boolean isNestedIfStatement() {
@@ -122,29 +138,20 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
       return;
     }
     if (thenStmtInitializeField(nestedIf.thenStatement(), field) && !field.isVolatile() && !isImmutable(field)) {
-      reportIssue(parentIf.parent(), parentIf, MESSAGE);
+      reportIssue(parentIf.parent(), parentIf, "Remove this dangerous instance of double-checked locking.");
     }
   }
 
-  /**
-   * This is naive, however can avoid the FP in the simplest cases
-   */
-  private static boolean isImmutable(Symbol field) {
-    Type fieldType = field.type();
-    if (!fieldType.isClass()) {
-      return false;
+  @CheckForNull
+  private ExpressionTree identicalConditionAlreadyOnStack(ExpressionTree nestedCondition) {
+    for (ExpressionTree parentCondition : ifConditionStack) {
+      Symbol symbol1 = fieldFromEqCondition(parentCondition);
+      Symbol symbol2 = fieldFromEqCondition(nestedCondition);
+      if (symbol1 == symbol2) {
+        return parentCondition;
+      }
     }
-    Collection<Symbol> members = field.type().symbol().memberSymbols();
-    Optional<Symbol> nonFinalField = members.stream()
-      .filter(symbol -> symbol.isVariableSymbol() && symbol.type().isPrimitive() && !symbol.isFinal())
-      .findAny();
-    return !nonFinalField.isPresent();
-  }
-
-  private static boolean thenStmtInitializeField(StatementTree statementTree, Symbol field) {
-    AssignmentVisitor visitor = new AssignmentVisitor(field);
-    statementTree.accept(visitor);
-    return visitor.assignmentToField;
+    return null;
   }
 
   private static Symbol fieldFromEqCondition(ExpressionTree condition) {
@@ -161,43 +168,44 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
     return null;
   }
 
-  @CheckForNull
-  private ExpressionTree identicalConditionAlreadyOnStack(ExpressionTree nestedCondition) {
-
-    for (ExpressionTree parentCondition : ifConditionStack) {
-      Symbol symbol1 = fieldFromEqCondition(parentCondition);
-      Symbol symbol2 = fieldFromEqCondition(nestedCondition);
-      if (symbol1 == symbol2) {
-        return parentCondition;
-      }
-    }
-    return null;
-  }
-
-  private boolean insideCriticalSection() {
-    return !synchronizedStmtStack.isEmpty();
-  }
-
-  private static boolean fieldNotInitializedTest(ExpressionTree condition) {
-    if (!condition.is(EQUAL_TO)) {
-      return false;
-    }
-    BinaryExpressionTree eqRelation = (BinaryExpressionTree) condition;
-    if (isField(eqRelation.leftOperand()) && eqRelation.rightOperand().is(NULL_LITERAL)) {
-      return true;
-    }
-    if (isField(eqRelation.rightOperand()) && eqRelation.leftOperand().is(NULL_LITERAL)) {
-      return true;
-    }
-    return false;
-  }
-
   private static boolean isField(ExpressionTree expressionTree) {
     Symbol symbol = symbolFromVariable(expressionTree);
     if (symbol == null) {
       return false;
     }
     return symbol.isVariableSymbol() && symbol.owner().isTypeSymbol();
+  }
+
+  @CheckForNull
+  private static Symbol symbolFromVariable(ExpressionTree variable) {
+    if (variable.is(IDENTIFIER)) {
+      return ((IdentifierTree) variable).symbol();
+    }
+    if (variable.is(MEMBER_SELECT)) {
+      return ((MemberSelectExpressionTree) variable).identifier().symbol();
+    }
+    return null;
+  }
+
+  private static boolean thenStmtInitializeField(StatementTree statementTree, Symbol field) {
+    AssignmentVisitor visitor = new AssignmentVisitor(field);
+    statementTree.accept(visitor);
+    return visitor.assignmentToField;
+  }
+
+  /**
+   * This is naive, however can avoid the FP in the simplest cases
+   */
+  private static boolean isImmutable(Symbol field) {
+    Type fieldType = field.type();
+    if (!fieldType.isClass()) {
+      return false;
+    }
+    Collection<Symbol> members = field.type().symbol().memberSymbols();
+    Optional<Symbol> nonFinalField = members.stream()
+      .filter(symbol -> symbol.isVariableSymbol() && symbol.type().isPrimitive() && !symbol.isFinal())
+      .findAny();
+    return !nonFinalField.isPresent();
   }
 
   private static class AssignmentVisitor extends BaseTreeVisitor {
@@ -217,17 +225,6 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
         assignmentToField = true;
       }
     }
-  }
-
-  @CheckForNull
-  private static Symbol symbolFromVariable(ExpressionTree variable) {
-    if (variable.is(IDENTIFIER)) {
-      return ((IdentifierTree) variable).symbol();
-    }
-    if (variable.is(MEMBER_SELECT)) {
-      return ((MemberSelectExpressionTree) variable).identifier().symbol();
-    }
-    return null;
   }
 
 }
