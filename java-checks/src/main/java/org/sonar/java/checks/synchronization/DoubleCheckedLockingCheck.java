@@ -20,6 +20,7 @@
 package org.sonar.java.checks.synchronization;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterators;
 import org.sonar.check.Rule;
 import org.sonar.plugins.java.api.IssuableSubscriptionVisitor;
 import org.sonar.plugins.java.api.semantic.Symbol;
@@ -64,33 +65,24 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
     if (!hasSemantic()) {
       return;
     }
-    if (tree.is(IF_STATEMENT)) {
-      visitIfStatement((IfStatementTree) tree);
+    if (tree.is(IF_STATEMENT) && isFieldEqNull(((IfStatementTree) tree).condition())) {
+      IfStatementTree ifTree = (IfStatementTree) tree;
+      ifConditionStack.push(ifTree.condition());
+      visitIfStatement(ifTree);
     }
     if (tree.is(SYNCHRONIZED_STATEMENT)) {
-      synchronizedStmtStack.add(tree);
+      synchronizedStmtStack.push(tree);
     }
   }
 
   @Override
   public void leaveNode(Tree tree) {
     if (tree.is(IF_STATEMENT) && isFieldEqNull(((IfStatementTree) tree).condition())) {
-      ifConditionStack.pollLast();
+      ifConditionStack.pop();
     }
     if (tree.is(SYNCHRONIZED_STATEMENT)) {
-      synchronizedStmtStack.pollLast();
+      synchronizedStmtStack.pop();
     }
-  }
-
-  private void visitIfStatement(IfStatementTree ifTree) {
-    if (!isFieldEqNull(ifTree.condition())) {
-      return;
-    }
-    ifConditionStack.add(ifTree.condition());
-    if (!insideCriticalSection() || !isNestedIfStatement()) {
-      return;
-    }
-    patternDetected(ifTree);
   }
 
   private static boolean isFieldEqNull(ExpressionTree condition) {
@@ -107,6 +99,23 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
     return false;
   }
 
+  private void visitIfStatement(IfStatementTree ifTree) {
+    if (!insideCriticalSection() || !isNestedIfStatement()) {
+      return;
+    }
+    ExpressionTree parentIf = identicalConditionAlreadyOnStack(ifTree.condition());
+    if (parentIf == null) {
+      return;
+    }
+    Symbol field = fieldFromEqCondition(ifTree.condition());
+    if (field == null) {
+      return;
+    }
+    if (thenStmtInitializeField(ifTree.thenStatement(), field) && !field.isVolatile() && !isImmutable(field)) {
+      reportIssue(parentIf.parent(), parentIf, "Remove this dangerous instance of double-checked locking.");
+    }
+  }
+
   private boolean insideCriticalSection() {
     return !synchronizedStmtStack.isEmpty();
   }
@@ -115,43 +124,11 @@ public class DoubleCheckedLockingCheck extends IssuableSubscriptionVisitor {
     return ifConditionStack.size() > 1;
   }
 
-  /**
-   * {@code
-   * if (fieldInitializationTest) {
-   *   synchronized {
-   *     if (fieldInitializationTest) {
-   *       ...
-   *     }
-   *   }
-   * }
-   * }
-   *
-   * @param nestedIf - if inside synchronized section
-   */
-  private void patternDetected(IfStatementTree nestedIf) {
-    ExpressionTree parentIf = identicalConditionAlreadyOnStack(nestedIf.condition());
-    if (parentIf == null) {
-      return;
-    }
-    Symbol field = fieldFromEqCondition(nestedIf.condition());
-    if (field == null) {
-      return;
-    }
-    if (thenStmtInitializeField(nestedIf.thenStatement(), field) && !field.isVolatile() && !isImmutable(field)) {
-      reportIssue(parentIf.parent(), parentIf, "Remove this dangerous instance of double-checked locking.");
-    }
-  }
-
   @CheckForNull
   private ExpressionTree identicalConditionAlreadyOnStack(ExpressionTree nestedCondition) {
-    for (ExpressionTree parentCondition : ifConditionStack) {
-      Symbol symbol1 = fieldFromEqCondition(parentCondition);
-      Symbol symbol2 = fieldFromEqCondition(nestedCondition);
-      if (symbol1 == symbol2) {
-        return parentCondition;
-      }
-    }
-    return null;
+    Symbol nestedIfField = fieldFromEqCondition(nestedCondition);
+    return Iterators.tryFind(ifConditionStack.descendingIterator(), parentIf -> fieldFromEqCondition(parentIf) == nestedIfField)
+      .orNull();
   }
 
   private static Symbol fieldFromEqCondition(ExpressionTree condition) {
