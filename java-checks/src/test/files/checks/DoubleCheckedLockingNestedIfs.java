@@ -3,7 +3,7 @@ class Foo {
   private Helper helper = null;
 
   public Helper unrelatedNestedIfs() {
-    if (helper == null) { // Noncompliant [[sc=5;ec=23]] {{Remove this dangerous instance of double-checked locking.}}
+    if (helper == null) { // Noncompliant [[sc=5;ec=7;secondary=13]] {{Remove this dangerous instance of double-checked locking.}}
       if (sunIsUp) {
         doSomething();
       }

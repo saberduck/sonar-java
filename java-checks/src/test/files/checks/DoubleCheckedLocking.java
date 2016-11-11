@@ -3,7 +3,7 @@ class Foo {
   private Helper helper = null;
 
   public Helper classicCase() {
-    if (helper == null) // Noncompliant [[sc=5;ec=23]] {{Remove this dangerous instance of double-checked locking.}}
+    if (helper == null) // Noncompliant [[sc=5;ec=7;secondary=8]] {{Remove this dangerous instance of double-checked locking.}}
       synchronized (this) {
         if (helper == null)
           helper = new Helper();
@@ -22,7 +22,7 @@ class Foo {
   }
 
   public Helper memberSelectCondition() {
-    if (this.helper == null) // Noncompliant [[sc=5;ec=28]] {{Remove this dangerous instance of double-checked locking.}}
+    if (this.helper == null) // Noncompliant [[sc=5;ec=7;secondary=27]] {{Remove this dangerous instance of double-checked locking.}}
       synchronized (this) {
         if (helper == null)
           this.helper = new Helper();
@@ -31,7 +31,7 @@ class Foo {
   }
 
   public Helper memberSelectCondition2() {
-    if (helper == null) // Noncompliant [[sc=5;ec=23]] {{Remove this dangerous instance of double-checked locking.}}
+    if (helper == null) // Noncompliant [[sc=5;ec=7;secondary=36]] {{Remove this dangerous instance of double-checked locking.}}
       synchronized (this) {
         if (this.helper == null)
           this.helper = new Helper();
@@ -40,7 +40,7 @@ class Foo {
   }
 
   public Helper memberSelectCondition3() {
-    if (this.helper == null) // Noncompliant [[sc=5;ec=28]] {{Remove this dangerous instance of double-checked locking.}}
+    if (this.helper == null) // Noncompliant [[sc=5;ec=7;secondary=45]] {{Remove this dangerous instance of double-checked locking.}}
       synchronized (this) {
         if (this.helper == null)
           this.helper = new Helper();
@@ -49,7 +49,7 @@ class Foo {
   }
 
   public Helper invertedConditions() {
-    if (null == this.helper) // Noncompliant [[sc=5;ec=28]] {{Remove this dangerous instance of double-checked locking.}}
+    if (null == this.helper) // Noncompliant [[sc=5;ec=7;secondary=54]] {{Remove this dangerous instance of double-checked locking.}}
       synchronized (this) {
         if (null == helper)
           this.helper = new Helper();
@@ -58,7 +58,7 @@ class Foo {
   }
 
   public Helper intializationViaMemberSelect2() {
-    if (helper == null) // Noncompliant [[sc=5;ec=23]] {{Remove this dangerous instance of double-checked locking.}}
+    if (helper == null) // Noncompliant [[sc=5;ec=7;secondary=63]] {{Remove this dangerous instance of double-checked locking.}}
       synchronized (this) {
         if (helper == null)
           this.helper = new Helper();
@@ -66,6 +66,26 @@ class Foo {
     return helper;
   }
 
+  private AbstractHelper abstractHelper;
+  private HelperInterface helperInterface;
+
+  public HelperInterface interfaceHelper() {
+    if (helperInterface == null) // Noncompliant [[sc=5;ec=7;secondary=75]] {{Remove this dangerous instance of double-checked locking.}}
+      synchronized (this) {
+        if (helperInterface == null)
+          this.helperInterface = new Helper();
+      }
+    return helperInterface;
+  }
+
+  public AbstractHelper abstractHelper() {
+    if (abstractHelper == null) // Noncompliant [[sc=5;ec=7;secondary=84]] {{Remove this dangerous instance of double-checked locking.}}
+      synchronized (this) {
+        if (abstractHelper == null)
+          this.abstractHelper = new Helper();
+      }
+    return abstractHelper;
+  }
 }
 
 //after java 5 volatile keyword will guarantee correct read/write ordering with memory barriers
@@ -105,26 +125,10 @@ class ImmutableHelper {
   final int field;
 }
 
-class ColorSpace {
+interface HelperInterface {
 
-  public static final int CS_sRGB = 1000;
-
-  public static ColorSpace getInstance(int colorspace) {
-    ColorSpace theColorSpace;
-
-    switch (colorspace) {
-      case CS_sRGB:
-        synchronized (ColorSpace.class) {
-          if (sRGBspace == null) {
-            ICC_Profile theProfile = ICC_Profile.getInstance(CS_sRGB);
-            sRGBspace = new ICC_ColorSpace(theProfile);
-          }
-
-          theColorSpace = sRGBspace;
-        }
-        break;
-    }
-  }
 }
 
+abstract class AbstractHelper {
 
+}

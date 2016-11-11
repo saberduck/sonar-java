@@ -39,4 +39,9 @@ public class DoubleCheckedLockingCheckTest {
     JavaCheckVerifier.verifyNoIssue("src/test/files/checks/DoubleCheckedLockingCompliant.java", new DoubleCheckedLockingCheck());
   }
 
+//  @Test
+//  public void accountCancelInterceptor() {
+//    JavaCheckVerifier.verify("C:\\projects\\sonar-java\\its\\sources\\jboss-ejb3-tutorial\\interceptor\\src\\org\\jboss\\tutorial\\interceptor\\bean\\AccountsCancelInterceptor.java", new DoubleCheckedLockingCheck());
+//  }
+
 }

@@ -1,6 +1,7 @@
 class Compliant {
 
   private Helper helper = null;
+  private int primitiveField = 0;
 
   public void notTheSameTest() {
     if (sunIsUp) {
@@ -22,4 +23,30 @@ class Compliant {
     }
   }
 
+  public void primitiveField() {
+    if (primitiveField == null) {
+      synchronized (this) {
+        if (primitiveField == null) {
+          primitiveField = 42;
+        }
+      }
+    }
+  }
+
+  public void otherField() {
+    if (helper == null) {
+      synchronized (this) {
+        if (primitiveField == null) {
+          primitiveField = 42;
+        }
+      }
+    }
+  }
+
+
+}
+
+
+class StringResource {
+  final String field;
 }
