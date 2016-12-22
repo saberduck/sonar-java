@@ -461,6 +461,7 @@ public final class CheckList {
       .add(SynchronizationOnGetClassCheck.class)
       .add(DisallowedClassCheck.class)
       .add(LazyArgEvaluationCheck.class)
+      .add(FlowOrderCheck.class)
       .build();
   }
 
